@@ -1,48 +1,67 @@
-# Rails Security Checklist
+# Railsセキュリティチェックリスト
 
-This checklist is limited to Rails security precautions and there are many other aspects of running a Rails app that need to be secured (e.g. up-to-date operating system and other software) that this does not cover. **Consult a security expert.**
+注）本文書は[英語](https://github.com/eliotsykes/rails-security-checklist/blob/master/README.md)から翻訳したものであり、その内容が最新でない場合もあります。最新の情報はオリジナルの英語版を参照してください。（翻訳日: 2017/03/23)
+
+このチェックリストはRailsのセキュリティの注意事項について書いています。そのため、Railsアプリをセキュアにするために必要なほかのこと(OSやミドルウェアのアップロードなど)についてはカバーしていません。
 
 One aim for this document is to turn it into a community resource much like the [Ruby Style Guide](https://github.com/bbatsov/ruby-style-guide).
 
-**BEWARE** this checklist is not comprehensive and was originally drafted by a Rails developer with an interest in security - not a security expert - so it may have some problems - you have been warned!
+**留意事項** このチェックリストはすべてを網羅していません。また、セキュリティの専門家ではなく、セキュリティに興味があるRails Developerにより書き始められたので、問題がある場合もあるので、気をつけて下さい。
 
 ## The Checklist (_in no particular order_)
 
-### Controllers
-- [ ] Enable secure default callbacks for `ApplicationController` (and other abstract controllers)
-  - [ ] Enforce authentication callbacks on actions (Devise's `authenticate_user!`)
-  - [ ] Enforce authorization callbacks on actions (Pundit's `verify_authorized`)
-  - [ ] Enforce authorization-related scoping callbacks on actions (Pundit's `verify_policy_scoped`)
-  - [ ] Enforce CSRF protections (protect from forgery)
-- [ ] When disabling security-related controller callbacks, target actions on a case-by-case basis. Be very selective and deliberate and only disable it in that concrete controller. Avoid sweeping changes in the controller class hierarchy that would make subclasses less secure by default.
+### コントローラー
+- [ ] `ApplicationController`や抽象コントローラーで、セキュリティのコールバックをデフォルトで有効にする
+  - [ ] 認証(authentication) (Devise's `authenticate_user!`)
+  - [ ] 権限(authorization) (Pundit's `verify_authorized`)
+  - [ ] CSRFプロテクション (protect from forgery)
 
+```rb
+class MyPageController
+  before_action :authenticate_user!
 
-### Routes
-- [ ] Perform authentication and authorization checks in `routes.rb`. It is intentional this duplicates many of the security checks you already perform in the controller callbacks (Devise's `authenticate` and `authenticated`) (motivations: defence-in-depth, swiss cheese model).
+  # 共通処理
+end
+
+class MessageController < MyPageController
+  # アクション
+end
+
+class MessageController < MyPageController
+  # アクション
+end
+```
+
+### ルート
+
+- [ ] `routes.rb`で、認証と権限チェックを実行する。 コントローラーのコールバックと重複するが意図的に重複させている。 (Devise's `authenticate` and `authenticated`) (motivations: defence-in-depth, swiss cheese model).
 - [ ] Check all URL endpoints of engines and other Rack apps mounted in `routes.rb` are protected with correct authentication and authorization checks. For sensitive engines/Rack apps favor not leaking they are installed at all by responding with 404 to non-logged in admin users.
 - [ ] Check any developer/test-related engines/Rack apps do not expose any URL endpoints in production. They should not even leak (e.g. via 500 HTTP response code) information that they are installed. Ideally don't have their gems installed in production.
 
 
-### Views
-- [ ] Avoid HTML comments in view templates as these are viewable to clients. Use server-side comments instead:
+### ビュー
+
+- [ ] クライアントに見えてしまうHTMLコメントを避ける。
 ```
-# bad - HTML comments will be visible to users who "View Source":
-<!-- This will be sent to clients -->
+# bad - "View Source"でHTMLコメントは見える
+<!-- これはクライアントに送られる -->
 <!-- <%= link_to "Admin Site", "https://admin.example.org/login" %> -->
 
-# ok - ERB comments are removed by the server, and so not viewable to clients:
-<%# This will _not_ be sent to clients %>
+# ok - ERBコメントはサーバー側で削除されるので、クライアントは見えない
+<%# これはクライアントに送られない %>
 <%#= link_to "Admin Site", "https://admin.example.org/login" %>
 ```
 
 
-### URL Secret Tokens
-- [ ] Mitigate `Referer` header leaking URL secret tokens to 3rd parties (e.g. password reset URLs can be leaked to CDNs, JS hosted by third parties, other sites you link to). (https://robots.thoughtbot.com/is-your-site-leaking-password-reset-links)
+### URLシークレットトークン
+
+- URLシークレットトークンがヘッダーの `Referer` でサードパーティに漏れるのを緩和する。(例: パスワードリセットURLはCDNやJSをホストしているサードパーティなどに漏れる可能性がある) (https://robots.thoughtbot.com/is-your-site-leaking-password-reset-links)
 
 
-### IDs
-- [ ] Avoid exposing sequential IDs (`98`, `99`, `100`, ...) which can leak information about your app's usage and assist [forced browsing attacks](https://www.owasp.org/index.php/Forced_browsing). For example, sequential IDs are often exposed in URLs, form field HTML source, and APIs. Sequential IDs reveal the size and rate at which certain types of data are created in your app. For example, if a competitor signs up to your service and their account page is at path `/users/12000`, and they sign up again in a month, and their new account path is `/users/13000`, you have leaked that your service gains roughly 1,000 sign-ups per month and has 13,000 accounts total. It is not recommended but some small mitigation can be made by starting IDs at a very large number, however this still leaks the rate of new data creation.
-- [ ] If IDs need to be exposed in URLs, forms, etc., favor less predictable IDs such as UUIDs or [hashids](http://hashids.org/ruby/) instead of sequential IDs. For files consider using a technique like [Paperclip's URI Obfuscation](https://github.com/thoughtbot/paperclip#uri-obfuscation) to produce unpredictable file paths (URI Obfuscation will need to be used alongside other protections).
+### ID
+
+- [ ] シーケンシャルなID (`98`, `99`, `100`, ...) の露出を避ける。サービスの使用度合いや[forced browsing attacks](https://www.owasp.org/index.php/Forced_browsing)をアシストしてしまうかもしれない。IDはフォームやAPIといったURL上で確認できてしまう。
+- [ ] もしIDをURL上に表示させる場合は、予測しづらいIDであるUUIDや[hashids](http://hashids.org/ruby/)を使うことが好ましい。ファイルの場合は、[Paperclip's URI Obfuscation](https://github.com/thoughtbot/paperclip#uri-obfuscation)のようなテクニックが予測しづらいパスを生成してくれる。
 
 
 ### Random Token Generation
@@ -50,7 +69,9 @@ One aim for this document is to turn it into a community resource much like the 
 
 
 ### Logging
+
 - [ ] Avoid Rails insecure default where it operates a blocklist and logs most request parameters. A safelist would be preferable. Set up the `filter_parameters` config to log no request parameters:
+
 ```rb
 # File: config/initializers/filter_parameter_logging.rb
 Rails.application.config.filter_parameters += [:password]
@@ -59,41 +80,45 @@ if Rails.env.production?
   Rails.application.config.filter_parameters += [MATCH_ALL_PARAMS_PATTERN]
 end
 ```
-- [ ] Regularly audit what data is captured by log files, 3rd party logging, error catching and monitoring services. You (and your users!) may be surprised at what sensitive information you find. Data stored in log files and 3rd party services can be exploited.
+
+- [ ] ログファイル、サードパーティロギング、エラー、モニタリングサービスで取得されているデータを監査する。センシティブな情報が見つかることに驚くかもしれない。
 - [ ] Favor minimal logging.
 - [ ] Consider not archiving logs or regularly purging archived logs stored by you and 3rd parties.
 
 
 ### Input Sanitization
-- [ ] Filter and validate all user input
-- [ ] Avoid code that reads from filesystem using user-submitted file names and paths. Use a strict safelist of permitted file names and paths if this cannot be avoided.
-- [ ] Any routes that redirect to a URL provided in a query string or POST param should operate a safelist of acceptable redirect URLs and/or limit to only redirecting to paths within the app's URL. Do not redirect to any given URL.
-- [ ] Consider adding a defensive layer to strong parameters to reject values that do not meet type requirements (https://github.com/zendesk/stronger_parameters)
-- [ ] Consider sanitizing all ActiveRecord attributes (favoring the secure default of an opt-out sanitizer such as `Loofah::XssFoliate` https://github.com/flavorjones/loofah-activerecord)
+
+- [ ] すべてのユーザ入力をフィルターし、バリデーションする
+- [ ] ユーザが入力したファイル名やパスを使って、ファイルシステムから読み込むを行なうコードを避ける。もし、どうしても必要な場合は、ファイル名やパスの厳重なセーフリストを使う。
+- [ ] Any routes that redirect to a URL provided in a query string or POST param should operate a safelist of acceptable redirect URLs and/or limit to only redirecting to paths within the app's URL. Do not redirect to any given URL. (https://railsguides.jp/security.html#%E3%83%AA%E3%83%80%E3%82%A4%E3%83%AC%E3%82%AF%E3%83%88)
+- [ ] StrongParameter の箇所に型を強制させるようなレイヤーを追加することを考えてみてください。(https://github.com/zendesk/stronger_parameters)
+- [ ] すべての ActiveReocrd の attributes をサニタイズすることを考えてみてください。(favoring the secure default of an opt-out sanitizer such as `Loofah::XssFoliate` https://github.com/flavorjones/loofah-activerecord)
 
 
-### Uploads and File Processing
-- [ ] Avoid handling file uploads on your (application) servers.
-- [ ] Favor scanning uploaded files for viruses/malware using a 3rd party service. don't do this on your own servers.
+### アップロード、ファイル処理
+
+- [ ] あなたのアプリケーションサーバー上でファイルアップロードをハンドリングすることを避ける
+- [ ] アップロードされたファイルをサードパーティサービスを使ってウイルスやマルウェアにかかってないかスキャンすることを推奨する
 - [ ] Operate a safelist of allowed file uploads
-- [ ] Avoid running imagemagick and other image processing software on your own infrastructure.
+- [ ] imagemagickや他のイメージ処理ソフトウェアをあなた自信のインフラ上で実行するのを避ける
 
 
 ### Email
 - [ ] Throttle the amount of emails that can be sent to a single user (e.g. some apps allow multiple password reset emails to be sent without restriction to the same user)
-- [ ] Avoid user-provided data being sent in emails that could be used in an attack. E.g. URLs will become links in most email clients, so if an attacker enters a URL (even into a field that is not intended to be a URL) and your app sends this to another user, that user/victim may click on the attacker-provided URL.
+- [ ] ユーザが入力したデータをメールで送ることを避ける。例えば、URLを変更できる場合、他のユーザはそのリンクをクリックして被害を受けるかもしれない。
 - [ ] Email security (needs more info)
   - [ ] Use DKIM (https://scotthelme.co.uk/email-security-dkim/)
   - [ ] etc.
 
 
-### Detecting Abuse and Fraud
-- [ ] Notify users via email when their passwords change | HOWTOs: [Devise](https://github.com/plataformatec/devise/wiki/Notify-users-via-email-when-their-passwords-change)
-- [ ] Favor sending notifications to user for significant account-related events (e.g. password change, credit card change, customer/technical support phone call made, new payment charge, new email or other contact information added, wrong password entered, 2FA disabled/enabled, other settings changes, login from a never-before used region and/or IP address)
-- [ ] Do not send the new password via unencrypted email.
+### 乱用と詐欺の検出
+
+- [ ] パスワードが変更されたらメールでユーザに通知する | HOWTOs: [Devise](https://github.com/plataformatec/devise/wiki/Notify-users-via-email-when-their-passwords-change)
+- [ ] 重要なアカウントに関連するイベントをユーザに通知することを推奨 (e.g. password change, credit card change, customer/technical support phone call made, new payment charge, new email or other contact information added, wrong password entered, 2FA disabled/enabled, other settings changes, login from a never-before used region and/or IP address)
+- [ ] 新しいパスワードを暗号化されていないメールで送らない
 - [ ] Consider keeping an audit trail of all significant account-related events (e.g. logins, password changes, etc.) that the user can review (and consider sending this as a monthly summary to them)
-- [ ] Use this audit trail or counters to rate-limit dangerous actions. For instance, prevent brute force password attacks by only allowing some maximum number of logins per second.
-- [ ] Limit the creation of valuable data, globally, per user, per IP address, per country (IP geolocation), per zip code, per phone number, per social security number, or a combination thereof, to mitigate other kinds of attacks (DDOS, overflow, fraud). For example, only allowing 3 different social security numbers per IP address could [reduce fraudulent credit card applications](https://twitter.com/theroxyd/status/827525528429137920).
+- [ ] 危険なアクションに制限をかける。例えば、パスワードの総当たり攻撃などが防げる。
+- [ ] ユーザ単位、IPアドレス単位などで貴重なデータの作成に制限をかける。 例えば、IPアドレスでにつき、ソーシャルセキュリティ番号を3つまでしか登録できなくする。 [reduce fraudulent credit card applications](https://twitter.com/theroxyd/status/827525528429137920).
 
 
 ### Logins, Registrations
@@ -185,7 +210,8 @@ authenticated = ActiveSupport::SecurityUtils.secure_compare(
 
 
 ### Cross Site Scripting
-- [ ] Regularly grep codebase for `html_safe`, `raw`, etc. usage and review
+
+- [ ] `html_safe`, `raw` などで `grep` してXSSが起きていないかレビューする
 
 
 ### Developer Hardware
@@ -201,8 +227,9 @@ authenticated = ActiveSupport::SecurityUtils.secure_compare(
   - [ ] Prevent attackers making a genuine purchase on your staging site using well-known test payment methods (e.g. Stripe test credit card numbers)
 
 
-### Regular Expressions
-- [ ] Favor using `\A` and `\z` as regular expression anchors instead of `^` and `$` (http://guides.rubyonrails.org/security.html#regular-expressions)
+### 正規表現
+
+- [ ] `^` と `$` の代わりに、`\A` と `\z` を使うことを推奨します。 (http://guides.rubyonrails.org/security.html#regular-expressions)
 
 
 ### Handling Secrets
